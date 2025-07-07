@@ -1,6 +1,6 @@
 import asyncio
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 from flask import Flask, request
 import json
 
@@ -24,9 +24,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot started! Send 1572 or 1455 to test.")
 
 @app.route('/webhook', methods=['POST'])
-async def webhook():
+def webhook():
     update = Update.de_json(json.loads(request.get_data(as_text=True)), bot_app.bot)
-    await bot_app.process_update(update)
+    asyncio.run(bot_app.process_update(update))
     return 'OK', 200
 
 async def main():
@@ -37,7 +37,7 @@ async def main():
     print("Bot is starting...")
 
     # Set webhook
-    webhook_url = "https://telegram-bot-tedk.onrender.com/webhook"  # Replace with your Render URL
+    webhook_url = "https://telegram-bot-tedk.onrender.com/webhook"  # Verifică dacă URL-ul este corect
     await bot_app.bot.set_webhook(url=webhook_url)
 
 if __name__ == '__main__':
