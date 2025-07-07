@@ -32,12 +32,13 @@ async def webhook():
 async def main():
     global bot_app
     bot_app = ApplicationBuilder().token("7798512073:AAF99ZGp1-ZqnncYxTsytx7deDdOw_VAdik").build()
-    bot_app.add_handler(CommandHandler("start", start))
+    bot匆
+
+System: bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("Bot is starting...")
-
     # Set webhook
-    webhook_url = "https://telegram-bot-s8su.onrender.com/webhook"  # Replace with your Render URL
+    webhook_url = "https://telegram-bot-vaog.onrender.com/webhook"  # Replace with your Render URL
     await bot_app.bot.set_webhook(url=webhook_url)
 
 if __name__ == '__main__':
