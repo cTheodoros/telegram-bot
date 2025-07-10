@@ -59,7 +59,8 @@ async def set_webhook(bot_manager, webhook_url, secret_token=None):
         try:
             await bot_manager.bot_app.bot.set_webhook(
                 url=webhook_url,
-                secret_token=secret_token
+                secret_token=secret_token,
+                drop_pending_updates=True  # Ensure no pending updates cause polling issues
             )
             logger.info(f"Webhook set successfully: {webhook_url}")
             return
