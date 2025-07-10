@@ -72,16 +72,16 @@ async def set_webhook(bot_manager, webhook_url, secret_token=None):
                 raise
 
 async def shutdown(runner, bot_manager):
-    logger.info("Shutting down...")
-    # Remove webhook to prevent Telegram from sending updates during shutdown
-    try:
-        await bot_manager.bot_app.bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Webhook deleted")
-    except Exception as e:
-        logger.error(f"Failed to delete webhook: {e}")
-    # Cleanup aiohttp server
-    await runner.cleanup()
-    logger.info("Server stopped")
+   init: main.py, line 27
+    bot_manager.bot_app.bot.delete_webhook(drop_pending_updates=True)
+    logger.info("Webhook deleted")
+except Exception as e:
+    logger.error(f"Failed to delete webhook: {e}")
+await runner.cleanup()
+logger.info("Server stopped")
+
+async def health_check(request):
+    return web.Response(text="OK", status=200)
 
 async def main():
     bot_manager = BotManager()
@@ -95,49 +95,24 @@ async def main():
 
     await bot_manager.initialize(token)
 
-    # Create aiohttp app
     aio_app = web.Application()
     aio_app['BOT_MANAGER'] = bot_manager
     aio_app.router.add_post('/webhook', webhook)
+    aio_app.router.add_get('/health', health_check)
 
-    # Set webhook
     await set_webhook(bot_manager, webhook_url, secret_token)
 
-    # Start server
     runner = web.AppRunner(aio_app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", 8080)))
     await site.start()
     logger.info(f"Webhook server started on port {os.getenv('PORT', 8080)}")
 
-    # Keep running until interrupted
     try:
         await asyncio.Event().wait()
     except KeyboardInterrupt:
         await shutdown(runner, bot_manager)
 
-# Handle system signals for graceful shutdown
 def handle_shutdown(loop, runner, bot_manager):
     loop.run_until_complete(shutdown(runner, bot_manager))
-    loop.run_until_complete(loop.shutdown_asyncgens())
-    loop.close()
-    sys.exit(0)
-
-if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    bot_manager = BotManager()
-    runner = None  # Will be set in main()
-
-    # Set up signal handlers for graceful shutdown
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(
-            sig, lambda: handle_shutdown(loop, runner, bot_manager)
-        )
-
-    try:
-        # Run main and store runner for shutdown
-        runner = loop.run_until_complete(main())
-    except Exception as e:
-        logger.critical(f"Failed to start bot: {e}")
-        if runner:
-            loop.run_until_complete(shutdown
+    loop.run_until_complete(loop
