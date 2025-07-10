@@ -71,7 +71,7 @@ async def set_webhook(bot_manager, webhook_url, secret_token=None):
         except Exception as e:
             logger.error(f"Failed to set webhook (attempt {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                await asyncio.sleep(2 ** attempt)
             else:
                 logger.critical("Failed to set webhook after retries")
                 raise
@@ -79,8 +79,9 @@ async def set_webhook(bot_manager, webhook_url, secret_token=None):
 async def shutdown(runner, bot_manager):
     logger.info("Shutting down...")
     try:
-        await bot_manager.bot_app.bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Webhook deleted")
+        if bot_manager.bot_app:
+            await bot_manager.bot_app.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Webhook deleted")
     except Exception as e:
         logger.error(f"Failed to delete webhook: {e}")
     await runner.cleanup()
@@ -126,7 +127,7 @@ def handle_shutdown(loop, runner, bot_manager):
     sys.exit(0)
 
 if __name__ == '__main__':
-    loop = asyncio.new_event_loop()  # Create new event loop
+    loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     bot_manager = BotManager()
     runner = None
