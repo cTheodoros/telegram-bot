@@ -18,12 +18,13 @@ class BotManager:
 
     async def initialize(self, token):
         try:
+            logger.info("Starting bot initialization")
             self.bot_app = ApplicationBuilder().token(token).build()
             self.bot_app.add_handler(CommandHandler("start", start))
             self.bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
             logger.info("Bot initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize bot: {e}")
+            logger.error(f"Failed to initialize bot: {e}", exc_info=True)
             raise
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -42,7 +43,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def webhook(request):
     bot_manager = request.app['BOT_MANAGER']
     try:
-        # Verify secret token for security
         secret_token = os.getenv("WEBHOOK_SECRET_TOKEN")
         if secret_token and request.headers.get('X-Telegram-Bot-Api-Secret-Token') != secret_token:
             logger.warning("Unauthorized webhook request")
@@ -54,7 +54,7 @@ async def webhook(request):
             await bot_manager.bot_app.process_update(update)
         return web.Response(text='OK', status=200)
     except Exception as e:
-        logger.error(f"Error processing webhook: {e}")
+        logger.error(f"Error processing webhook: {e}", exc_info=True)
         return web.Response(text='Error', status=500)
 
 async def set_webhook(bot_manager, webhook_url, secret_token=None):
@@ -82,10 +82,11 @@ async def shutdown(runner, bot_manager):
         if bot_manager.bot_app:
             await bot_manager.bot_app.bot.delete_webhook(drop_pending_updates=True)
             logger.info("Webhook deleted")
+        if runner:
+            await runner.cleanup()
+            logger.info("Server stopped")
     except Exception as e:
-        logger.error(f"Failed to delete webhook: {e}")
-    await runner.cleanup()
-    logger.info("Server stopped")
+        logger.error(f"Failed during shutdown: {e}", exc_info=True)
 
 async def health_check(request):
     return web.Response(text="OK", status=200)
@@ -115,16 +116,17 @@ async def main():
     await site.start()
     logger.info(f"Webhook server started on port {os.getenv('PORT', 8080)}")
 
-    try:
-        await asyncio.Event().wait()
-    except KeyboardInterrupt:
-        await shutdown(runner, bot_manager)
+    return runner  # Return runner for shutdown
 
 def handle_shutdown(loop, runner, bot_manager):
-    loop.run_until_complete(shutdown(runner, bot_manager))
-    loop.run_until_complete(loop.shutdown_asyncgens())
-    loop.close()
-    sys.exit(0)
+    try:
+        loop.run_until_complete(shutdown(runner, bot_manager))
+        loop.run_until_complete(loop.shutdown_asyncgens())
+    except Exception as e:
+        logger.error(f"Error in handle_shutdown: {e}", exc_info=True)
+    finally:
+        loop.close()
+        sys.exit(0)
 
 if __name__ == '__main__':
     loop = asyncio.new_event_loop()
@@ -133,14 +135,18 @@ if __name__ == '__main__':
     runner = None
 
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(
-            sig, lambda: handle_shutdown(loop, runner, bot_manager)
-        )
+        try:
+            loop.add_signal_handler(
+                sig, lambda: handle_shutdown(loop, runner, bot_manager)
+            )
+        except NotImplementedError:
+            logger.warning(f"Signal {sig} not supported on this platform")
 
     try:
         runner = loop.run_until_complete(main())
+        loop.run_forever()
     except Exception as e:
-        logger.critical(f"Failed to start bot: {e}")
+        logger.critical(f"Failed to start bot: {e}", exc_info=True)
         if runner:
             loop.run_until_complete(shutdown(runner, bot_manager))
         sys.exit(1)
