@@ -72,13 +72,14 @@ async def set_webhook(bot_manager, webhook_url, secret_token=None):
                 raise
 
 async def shutdown(runner, bot_manager):
-   init: main.py, line 27
-    bot_manager.bot_app.bot.delete_webhook(drop_pending_updates=True)
-    logger.info("Webhook deleted")
-except Exception as e:
-    logger.error(f"Failed to delete webhook: {e}")
-await runner.cleanup()
-logger.info("Server stopped")
+    logger.info("Shutting down...")
+    try:
+        await bot_manager.bot_app.bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook deleted")
+    except Exception as e:
+        logger.error(f"Failed to delete webhook: {e}")
+    await runner.cleanup()
+    logger.info("Server stopped")
 
 async def health_check(request):
     return web.Response(text="OK", status=200)
@@ -115,4 +116,24 @@ async def main():
 
 def handle_shutdown(loop, runner, bot_manager):
     loop.run_until_complete(shutdown(runner, bot_manager))
-    loop.run_until_complete(loop
+    loop.run_until_complete(loop.shutdown_asyncgens())
+    loop.close()
+    sys.exit(0)
+
+if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
+    bot_manager = BotManager()
+    runner = None
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(
+            sig, lambda: handle_shutdown(loop, runner, bot_manager)
+        )
+
+    try:
+        runner = loop.run_until_complete(main())
+    except Exception as e:
+        logger.critical(f"Failed to start bot: {e}")
+        if runner:
+            loop.run_until_complete(shutdown(runner, bot_manager))
+        sys.exit(1)
