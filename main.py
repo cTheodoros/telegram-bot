@@ -28,17 +28,15 @@ class BotManager:
             raise
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot started! Send 1572 or 1455 to test.")
+    await update.message.reply_text("Welcome to the Geocaching Bot! Enter the code to unlock the coordinates of the hidden cache.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message.text.strip()
     logger.info(f"Received message: {message}")
-    if message == "1572":
-        await update.message.reply_text("greșit")
-    elif message == "1455":
-        await update.message.reply_text("bravo")
+    if message == "17438711":
+        await update.message.reply_text("Congratulations! You’ve cracked the code! The cache is at: N 45° 17.460' E 122° 24.800'.")
     else:
-        await update.message.reply_text("Mesaj necunoscut. Încearcă din nou!")
+        await update.message.reply_text("Incorrect code. Please try again or check the geocache hint for clues!")
 
 async def webhook(request):
     bot_manager = request.app['BOT_MANAGER']
@@ -116,7 +114,7 @@ async def main():
     await site.start()
     logger.info(f"Webhook server started on port {os.getenv('PORT', 8080)}")
 
-    return runner  # Return runner for shutdown
+    return runner
 
 def handle_shutdown(loop, runner, bot_manager):
     try:
