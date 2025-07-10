@@ -1,18 +1,33 @@
 import asyncio
+import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
-from flask import Flask, request
-import json
+from aiohttp import web
+import logging
+import signal
+import sys
 
-# Initialize Flask app
-app = Flask(__name__)
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# Store the bot application globally
-bot_app = None
+# Bot manager to avoid global variables
+class BotManager:
+    def __init__(self):
+        self.bot_app = None
+
+    async def initialize(self, token):
+        self.bot_app = ApplicationBuilder().token(token).build()
+        self.bot_app.add_handler(CommandHandler("start", start))
+        self.bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        logger.info("Bot initialized")
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Bot started! Send 1572 or 1455 to test.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message.text.strip()
-    print(f"Received message: {message}")
+    logger.info(f"Received message: {message}")
     if message == "1572":
         await update.message.reply_text("greșit")
     elif message == "1455":
@@ -20,40 +35,109 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Mesaj necunoscut. Încearcă din nou!")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot started! Send 1572 or 1455 to test.")
+async def webhook(request):
+    bot_manager = request.app['BOT_MANAGER']
+    try:
+        # Verify secret token for security
+        secret_token = os.getenv("WEBHOOK_SECRET_TOKEN")
+        if secret_token and request.headers.get('X-Telegram-Bot-Api-Secret-Token') != secret_token:
+            logger.warning("Unauthorized webhook request")
+            return web.Response(text='Unauthorized', status=403)
+        
+        data = await request.json()
+        update = Update.de_json(data, bot_manager.bot_app.bot)
+        if update:
+            await bot_manager.bot_app.process_update(update)
+        return web.Response(text='OK', status=200)
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+        return web.Response(text='Error', status=500)
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    update = Update.de_json(json.loads(request.get_data(as_text=True)), bot_app.bot)
-    # Run the update processing in the existing event loop
-    asyncio.get_event_loop().create_task(bot_app.process_update(update))
-    return 'OK', 200
+async def set_webhook(bot_manager, webhook_url, secret_token=None):
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            await bot_manager.bot_app.bot.set_webhook(
+                url=webhook_url,
+                secret_token=secret_token
+            )
+            logger.info(f"Webhook set successfully: {webhook_url}")
+            return
+        except Exception as e:
+            logger.error(f"Failed to set webhook (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+            else:
+                logger.critical("Failed to set webhook after retries")
+                raise
+
+async def shutdown(runner, bot_manager):
+    logger.info("Shutting down...")
+    # Remove webhook to prevent Telegram from sending updates during shutdown
+    try:
+        await bot_manager.bot_app.bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook deleted")
+    except Exception as e:
+        logger.error(f"Failed to delete webhook: {e}")
+    # Cleanup aiohttp server
+    await runner.cleanup()
+    logger.info("Server stopped")
 
 async def main():
-    global bot_app
-    # Use environment variable for token
-    import os
+    bot_manager = BotManager()
     token = os.getenv("TOKEN")
     if not token:
+        logger.critical("TOKEN environment variable not set")
         raise ValueError("TOKEN environment variable not set")
-    
-    bot_app = ApplicationBuilder().token(token).build()
-    bot_app.add_handler(CommandHandler("start", start))
-    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Bot is starting...")
+
+    webhook_url = os.getenv("WEBHOOK_URL", "https://telegram-bot-tedk.onrender.com/webhook")
+    secret_token = os.getenv("WEBHOOK_SECRET_TOKEN")
+
+    await bot_manager.initialize(token)
+
+    # Create aiohttp app
+    aio_app = web.Application()
+    aio_app['BOT_MANAGER'] = bot_manager
+    aio_app.router.add_post('/webhook', webhook)
 
     # Set webhook
-    webhook_url = "https://telegram-bot-tedk.onrender.com/webhook"  # Verifică dacă URL-ul este corect
+    await set_webhook(bot_manager, webhook_url, secret_token)
+
+    # Start server
+    runner = web.AppRunner(aio_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", 8080)))
+    await site.start()
+    logger.info(f"Webhook server started on port {os.getenv('PORT', 8080)}")
+
+    # Keep running until interrupted
     try:
-        await bot_app.bot.set_webhook(url=webhook_url)
-        print("Webhook set successfully")
-    except Exception as e:
-        print(f"Failed to set webhook: {e}")
-        raise
+        await asyncio.Event().wait()
+    except KeyboardInterrupt:
+        await shutdown(runner, bot_manager)
+
+# Handle system signals for graceful shutdown
+def handle_shutdown(loop, runner, bot_manager):
+    loop.run_until_complete(shutdown(runner, bot_manager))
+    loop.run_until_complete(loop.shutdown_asyncgens())
+    loop.close()
+    sys.exit(0)
 
 if __name__ == '__main__':
-    # Initialize bot
-    asyncio.run(main())
-    # Run Flask app
-    app.run(host='0.0.0.0', port=8080)
+    loop = asyncio.get_event_loop()
+    bot_manager = BotManager()
+    runner = None  # Will be set in main()
+
+    # Set up signal handlers for graceful shutdown
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(
+            sig, lambda: handle_shutdown(loop, runner, bot_manager)
+        )
+
+    try:
+        # Run main and store runner for shutdown
+        runner = loop.run_until_complete(main())
+    except Exception as e:
+        logger.critical(f"Failed to start bot: {e}")
+        if runner:
+            loop.run_until_complete(shutdown
