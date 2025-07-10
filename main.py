@@ -32,7 +32,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message.text.strip()
     logger.info(f"Received message: {message}")
-    if message == "1570":
+    if message == "1572":
         await update.message.reply_text("greșit")
     elif message == "1455":
         await update.message.reply_text("bravo")
