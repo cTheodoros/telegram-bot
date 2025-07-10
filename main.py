@@ -17,10 +17,14 @@ class BotManager:
         self.bot_app = None
 
     async def initialize(self, token):
-        self.bot_app = ApplicationBuilder().token(token).build()
-        self.bot_app.add_handler(CommandHandler("start", start))
-        self.bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        logger.info("Bot initialized")
+        try:
+            self.bot_app = ApplicationBuilder().token(token).build()
+            self.bot_app.add_handler(CommandHandler("start", start))
+            self.bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+            logger.info("Bot initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize bot: {e}")
+            raise
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot started! Send 1572 or 1455 to test.")
@@ -60,7 +64,7 @@ async def set_webhook(bot_manager, webhook_url, secret_token=None):
             await bot_manager.bot_app.bot.set_webhook(
                 url=webhook_url,
                 secret_token=secret_token,
-                drop_pending_updates=True  # Ensure no pending updates cause polling issues
+                drop_pending_updates=True
             )
             logger.info(f"Webhook set successfully: {webhook_url}")
             return
@@ -122,7 +126,8 @@ def handle_shutdown(loop, runner, bot_manager):
     sys.exit(0)
 
 if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()  # Create new event loop
+    asyncio.set_event_loop(loop)
     bot_manager = BotManager()
     runner = None
 
